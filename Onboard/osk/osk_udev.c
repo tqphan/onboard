@@ -184,6 +184,7 @@ on_udev_event(GIOChannel* source, GIOCondition condition, gpointer data)
             udev_monitor_receive_device (this->input_monitor);
         if (device)
         {
+            PyGILState_STATE state = PyGILState_Ensure();
             const char* path = udev_device_get_devpath(device);
             PyObject* arglist = Py_BuildValue("(s)", path ? path : "");
             if (arglist)
@@ -191,6 +192,8 @@ on_udev_event(GIOChannel* source, GIOCondition condition, gpointer data)
                 osk_util_idle_call(this->event_handler, arglist);
                 Py_DECREF(arglist);
             }
+            PyGILState_Release(state);
+            udev_device_unref(device);
         }
     }
 
@@ -267,7 +270,7 @@ disconnect_monitor (OskUDev *this)
         this->input_monitor = NULL;
     }
 
-    Py_XDECREF (this->event_handler);
+    Py_CLEAR (this->event_handler);
 }
 
 
