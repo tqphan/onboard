@@ -1034,7 +1034,11 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
         # typing into firefox awesomebar.
         # Can't use event.mode as that appears to be broken and
         # never seems to become GDK_CROSSING_GRAB (Precise).
-        if self.canvas_rect.is_point_within((event.x, event.y)):
+        # Wayland leave events carry the last motion position instead of
+        # the exit point, so after fast pointer movement the check would
+        # drop real leave events and dwelling would continue.
+        if not WaylandUtils.is_wayland() and \
+           self.canvas_rect.is_point_within((event.x, event.y)):
             return
 
         self.stop_dwelling()
