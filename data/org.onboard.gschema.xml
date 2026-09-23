@@ -593,6 +593,21 @@ Modifiers can only be "SHIFT" at the moment.
             <description>Always enable the system provided window for click-type selection when exiting onboard.
 This key is deprecated and has no effect with mousetweaks version 3.10.0 or later.</description>
         </key>
+        <key name="dwell-key-activation" type="b">
+            <default>false</default>
+            <summary>Dwell key activation</summary>
+            <description>Activate keys by resting the pointer on them, without clicking.</description>
+        </key>
+        <key name="dwell-key-delay" type="d">
+            <default>1.0</default>
+            <summary>Dwell key activation delay</summary>
+            <description>Time in seconds the pointer has to rest on a key before it is activated.</description>
+        </key>
+        <key name="dwell-key-hold" type="b">
+            <default>false</default>
+            <summary>Hold dwell-activated keys</summary>
+            <description>Press the key when the dwell delay has passed and release it only when the pointer leaves the key. When false, the key is pressed and released at once. Only affects keys that send keystrokes.</description>
+        </key>
     </schema>
 
     <schema id="org.onboard.theme-settings" path="/org/onboard/theme-settings/">

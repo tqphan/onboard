@@ -37,13 +37,14 @@ from Onboard.KeyboardPopups import LayoutPopup, KeyboardPopup, \
                                    LayoutBuilderAlternatives, \
                                    LayoutBuilder
 from Onboard.KeyGtk         import Key
+from Onboard                import KeyCommon
 from Onboard.KeyCommon      import LOD
 from Onboard.TouchHandles   import TouchHandles
 from Onboard.LayoutView     import LayoutView
 from Onboard.utils          import Rect, escape_markup
 from Onboard.Timer          import Timer, FadeTimer
 from Onboard.definitions    import Handle, HandleFunction
-from Onboard.WindowUtils    import WindowManipulator, \
+from Onboard.WindowUtils    import WindowManipulator, DwellProgress, \
                                    canvas_to_root_window_rect, \
                                    canvas_to_root_window_point, \
                                    get_monitor_dimensions
@@ -319,6 +320,7 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
         self.dwell_timer = None
         self.dwell_key = None
         self.last_dwelled_key = None
+        self.dwell_held_sequence = None  # key held down by dwelling
 
         self.inactivity_timer = InactivityTimer(self)
 
@@ -409,6 +411,7 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
         self.stop_click_polling()
         self._configure_timer.stop()
         self.close_key_popup()
+        self.release_dwell_held_key()
 
         # free xserver memory
         self.invalidate_keys()
@@ -819,6 +822,9 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
 
     def set_visible(self, visible):
         """ main method to show/hide onboard manually """
+        if not visible:
+            self.release_dwell_held_key()
+
         self.transition_visible_to(visible, 0.0)
 
         # briefly present the window
@@ -1226,8 +1232,7 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
             # start dwelling if we have entered a dwell-enabled key
             if hit_key and \
                hit_key.sensitive:
-                controller = self.keyboard.get_button_controller(hit_key)
-                if controller and controller.can_dwell() and \
+                if self.can_dwell(hit_key, sequence) and \
                    not self.is_dwelling() and \
                    not self.already_dwelled(hit_key) and \
                    not config.scanner.enabled and \
@@ -1322,6 +1327,23 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
         self.keyboard.key_up(sequence.active_key, self, sequence,
                              not sequence.cancel_key_action)
 
+    def can_dwell(self, key, sequence):
+        """ Can the pointer start dwelling on key? """
+        controller = self.keyboard.get_button_controller(key)
+        if controller and controller.can_dwell():
+            return True
+
+        # dwell key activation of all other keys
+        if not config.universal_access.dwell_key_activation or \
+           sequence.is_touch() or \
+           config.is_mousetweaks_active():  # would activate keys twice
+            return False
+
+        if controller and controller.id in ("move", "quit"):
+            return False
+
+        return True
+
     def is_dwelling(self):
         return not self.dwell_key is None
 
@@ -1332,6 +1354,10 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
         self.cancel_dwelling()
         self.dwell_key = key
         self.last_dwelled_key = key
+        if config.universal_access.dwell_key_activation:
+            key.dwell_delay = config.universal_access.dwell_key_delay
+        else:
+            key.dwell_delay = DwellProgress.dwell_delay
         key.start_dwelling()
         self.dwell_timer = GLib.timeout_add(50, self._on_dwell_timer)
 
@@ -1340,6 +1366,8 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
         self.last_dwelled_key = None
 
     def stop_dwelling(self):
+        self.release_dwell_held_key()
+
         if self.dwell_timer:
             GLib.source_remove(self.dwell_timer)
             self.dwell_timer = None
@@ -1364,10 +1392,30 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
                         canvas_to_root_window_point(self, sequence.point)
 
                 self.key_down(sequence)
-                self.key_up(sequence)
+                if self._is_dwell_hold_key(key):
+                    # released when the pointer leaves the key
+                    self.dwell_held_sequence = sequence
+                else:
+                    self.key_up(sequence)
 
                 return False
         return True
+
+    def _is_dwell_hold_key(self, key):
+        """ Keep key pressed after dwelling until the pointer leaves? """
+        return config.universal_access.dwell_key_activation and \
+               config.universal_access.dwell_key_hold and \
+               key.type in [KeyCommon.CHAR_TYPE,
+                            KeyCommon.KEYSYM_TYPE,
+                            KeyCommon.KEYPRESS_NAME_TYPE,
+                            KeyCommon.KEYCODE_TYPE]
+
+    def release_dwell_held_key(self):
+        """ Release the key that is held down by dwelling, if any. """
+        sequence = self.dwell_held_sequence
+        if sequence:
+            self.dwell_held_sequence = None
+            self.key_up(sequence)
 
     def _on_query_tooltip(self, widget, x, y, keyboard_mode, tooltip):
         if config.show_tooltips and \

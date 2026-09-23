@@ -580,6 +580,16 @@ class Settings(DialogBuilder):
         config.universal_access.enable_click_type_window_on_exit_notify_add( \
                       self.enable_click_type_window_on_exit_toggle.set_active)
 
+        self.bind_check("dwell_key_activation_toggle",
+                        config.universal_access, "dwell_key_activation")
+        self.bind_spin("dwell_key_delay_spinbutton",
+                       config.universal_access, "dwell_key_delay")
+        self.bind_check("dwell_key_hold_toggle",
+                        config.universal_access, "dwell_key_hold")
+        config.universal_access.dwell_key_activation_notify_add(
+            lambda x: self.update_dwell_key_widgets())
+        self.update_dwell_key_widgets()
+
         if config.mousetweaks:
             self.bind_spin("hover_click_delay_spinbutton",
                             config.mousetweaks, "dwell_time")
@@ -807,6 +817,12 @@ class Settings(DialogBuilder):
 
     def on_scanner_settings_clicked(self, widget):
         ScannerDialog().run(self.window)
+
+    def update_dwell_key_widgets(self):
+        """ Delay and hold only apply with dwell key activation enabled. """
+        active = config.universal_access.dwell_key_activation
+        self.wid("dwell_key_delay_grid").set_sensitive(active)
+        self.wid("dwell_key_hold_toggle").set_sensitive(active)
 
     def on_hide_click_type_window_toggled(self, widget):
         config.universal_access.hide_click_type_window = widget.get_active()

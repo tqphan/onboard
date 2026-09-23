@@ -1898,6 +1898,9 @@ class ConfigUniversalAccess(ConfigObject):
         self.add_key("drag-threshold", -1)
         self.add_key("hide-click-type-window", True)
         self.add_key("enable-click-type-window-on-exit", True)
+        self.add_key("dwell-key-activation", False)
+        self.add_key("dwell-key-delay", 1.0)
+        self.add_key("dwell-key-hold", False)
 
     def _post_notify_hide_click_type_window(self):
         """ called when changed in gsettings (preferences window) """
