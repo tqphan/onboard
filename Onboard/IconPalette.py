@@ -437,6 +437,12 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
         """
         Override Gtk.Widget.hide() to save the window geometry.
         """
+        # Start with fresh dwell state. The leave event that normally
+        # resets it may never arrive after hiding under the pointer
+        # (Wayland).
+        self._stop_dwelling()
+        self._no_more_dwelling = False
+
         Gtk.Window.show_all(self)
         self.move_resize(*self.get_rect())  # sync with WindowRectTracker
         self._visible = True
@@ -445,6 +451,7 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
         """
         Override Gtk.Widget.hide() to save the window geometry.
         """
+        self._stop_dwelling()
         Gtk.Window.hide(self)
         self._visible = False
 
@@ -492,7 +499,18 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
 
     def _start_dwelling(self):
         self._stop_dwelling()
-        self._dwell_begin_timer = Timer(1.5, self._on_dwell_begin_timer)
+
+        # Same timing as the keys with dwell key activation enabled.
+        if config.universal_access.dwell_key_activation:
+            begin_delay = 0.0
+            self._dwell_progress.dwell_delay = \
+                config.universal_access.dwell_key_delay
+        else:
+            begin_delay = 1.5
+            self._dwell_progress.dwell_delay = DwellProgress.dwell_delay
+
+        self._dwell_begin_timer = Timer(begin_delay,
+                                        self._on_dwell_begin_timer)
         self._no_more_dwelling = True
 
     def _stop_dwelling(self):
