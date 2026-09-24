@@ -341,6 +341,8 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
         self._transition_state.y.value = 0.0
 
         self._configure_timer = Timer()
+        self._compositor_resizing = False
+        self._last_resize_time = 0.0
 
         self._language_menu = LanguageMenu(self)
         self._suggestion_menu = SuggestionMenu(self)
@@ -948,7 +950,20 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
         if window:
             window.on_user_positioning_done()
 
+        if self._compositor_resizing:
+            self._lod = LOD.MINIMAL
+            self._configure_timer.start(0.5, self._on_compositor_resize_done)
+        else:
+            self.reset_lod()
+
+    def _on_compositor_resize_done(self):
+        """
+        No size changes from the compositor for a while,
+        assume resizing has ended.
+        """
+        self._compositor_resizing = False
         self.reset_lod()
+        return False
 
     def get_always_visible_rect(self):
         """
@@ -990,9 +1005,27 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
     def _on_configure_event(self, widget, user_data):
         if self.is_new_layout_size(self.get_allocated_width(),
                                    self.get_allocated_height()):
+            self._detect_compositor_resizing()
             self.update_layout()
             self.update_touch_handles_positions()
             self.invalidate_for_resize(self._lod)
+
+            if self._compositor_resizing:
+                self._configure_timer.start(0.3,
+                                            self._on_compositor_resize_done)
+
+    def _detect_compositor_resizing(self):
+        """
+        Resizing with the window frame happens without our knowledge.
+        Take size changes in quick succession as an ongoing resize.
+        One-off size changes keep drawing at full level of detail.
+        """
+        now = time.time()
+        if not self.is_drag_initiated() and \
+           now - self._last_resize_time < 0.3:
+            self._compositor_resizing = True
+            self._lod = LOD.MINIMAL
+        self._last_resize_time = now
 
     def on_enter_notify(self, widget, event):
         self.keyboard.on_activity_detected()
@@ -1215,6 +1248,13 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
 
             # move/resize
             WindowManipulator.handle_motion(self, sequence, fallback=fallback)
+
+            # The compositor keeps resizing after our drag has ended.
+            # Remember it to stay at minimal level of detail meanwhile.
+            if not fallback and \
+               self.is_drag_active() and \
+               self.is_resizing():
+                self._compositor_resizing = True
 
             # stop long press when drag threshold has been overcome
             if self.is_drag_active():
