@@ -887,6 +887,10 @@ class KbdWindow(KbdWindowBase, WindowRectPersist, Gtk.Window):
         limit_position() or the window jumps when it was close
         to the opposite screen edge of the resize handle.
         """
+        if self._uses_kwin_rule:
+            self._update_home_size_from_compositor()
+            return
+
         # Configure event due to user positioning?
         result = self._filter_configure_event(self._window_rect)
         if result == 0:
@@ -904,6 +908,22 @@ class KbdWindow(KbdWindowBase, WindowRectPersist, Gtk.Window):
 
                 # keep the window active (LP: #1461823)
                 self.keyboard_widget.touch_inactivity_timer()
+
+    def _update_home_size_from_compositor(self):
+        """
+        KDE Wayland: KWin moves and resizes the window, and Onboard can
+        neither see nor set its global position. Take any size change of
+        the visible window as the new home size and leave the position
+        alone; KWin remembers that through the window rule.
+        """
+        if not self.is_visible() or \
+           self.is_iconified() or \
+           self.is_maximized() or \
+           self.home_rect is None:
+            return
+
+        if self._window_rect.get_size() != self.home_rect.get_size():
+            self.update_home_rect(update_home_position=False)
 
     def _filter_configure_event(self, rect):
         """

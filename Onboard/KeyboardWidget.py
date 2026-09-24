@@ -1205,6 +1205,14 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
             # fallback=False for faster system resizing (LP: #959035)
             fallback = True  # self.is_moving() or config.is_force_to_top()
 
+            # Wayland ignores client side window moves, let the
+            # compositor move/resize. Aspect ratio handles only change
+            # the layout and keep using the fallback.
+            if WaylandUtils.is_wayland() and \
+               self.get_handle_function(self._drag_handle) != \
+               HandleFunction.ASPECT_RATIO:
+                fallback = False
+
             # move/resize
             WindowManipulator.handle_motion(self, sequence, fallback=fallback)
 
@@ -1223,6 +1231,14 @@ class KeyboardWidget(Gtk.DrawingArea, WindowManipulatorAspectRatio,
                    not self._key_popup:
                     sequence.active_key = hit_key
                     self.key_down_update(sequence, active_key)
+
+            # The compositor now owns the pointer and swallows the
+            # button release. End the click here, else the move button
+            # stays pressed. Touch sequences get a TOUCH_CANCEL instead.
+            if not fallback and \
+               self.is_drag_active() and \
+               not sequence.is_touch():
+                self.end_input_sequence(sequence)
 
         else:
             if hit_handle is not None:

@@ -96,7 +96,8 @@ def install_kwin_rule(app_id="onboard",
                      description="Onboard on-screen keyboard"):
     """
     Idempotently install a KWin window rule that marks the Onboard window
-    as not-focus-stealing and always-on-top. Returns True on success.
+    as not-focus-stealing and always-on-top, and lets KWin remember its
+    position. Returns True on success.
 
     The rule is written to ``~/.config/kwinrulesrc`` (user scope, no sudo).
     KWin is asked to reload via D-Bus; if that fails the change still
@@ -172,6 +173,10 @@ def install_kwin_rule(app_id="onboard",
         "skiptaskbarrule": "2",
         "skippager": "true",
         "skippagerrule": "2",
+        # 'positionrule=4' = "remember": Wayland clients can't know or set
+        # their global position, so let KWin store it. KWin writes the
+        # value to 'position', which we deliberately leave untouched.
+        "positionrule": "4",
     }
     for k, v in values.items():
         parser.set(rule_name, k, v)
@@ -188,7 +193,9 @@ def install_kwin_rule(app_id="onboard",
     # what's already on disk -- avoids touching mtime (sync churn) and saves
     # a needless KWin reconfigure round-trip on every Onboard start.
     buf = io.StringIO()
-    parser.write(buf)
+    # KWin writes 'key=value'; match it so its own saves (e.g. the
+    # remembered position) don't make the file look changed.
+    parser.write(buf, space_around_delimiters=False)
     new_text = buf.getvalue()
 
     if new_text == current_text:

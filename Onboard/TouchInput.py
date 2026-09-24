@@ -744,6 +744,14 @@ class TouchInput(InputEventSource):
 
         self._last_sequence_time = sequence.time
 
+    def end_input_sequence(self, sequence):
+        """
+        End a sequence whose release will never arrive, e.g. after the
+        Wayland compositor took over the pointer for a window drag.
+        """
+        if sequence.id in self._input_sequences:
+            self._input_sequence_end(sequence)
+
     def _discard_stuck_input_sequences(self):
         """
         Input sequence handling requires guaranteed balancing of
