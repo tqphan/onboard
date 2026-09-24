@@ -24,7 +24,7 @@ from __future__ import division, print_function, unicode_literals
 
 from Onboard.Version import require_gi_versions
 require_gi_versions()
-from gi.repository import GObject, Gdk, Gtk
+from gi.repository import GObject, GLib, Gdk, Gtk
 
 import cairo
 
@@ -66,6 +66,9 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
     MINIMUM_SIZE = 20
 
     OPACITY = 0.75
+
+    """ Wayland app_id of the icon palette on KDE Plasma """
+    KWIN_APP_ID = "onboard-icon"
 
     _layout_view = None
 
@@ -109,6 +112,19 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
         # (with set_keep_above as a no-op on Wayland) is the lesser evil.
         self._is_layer_shell = False
         self.set_keep_above(True)
+
+        # On KDE Plasma Wayland, KWin remembers window positions per
+        # app_id through the rule from WaylandUtils.install_kwin_rule.
+        # Map the icon under its own app_id and rule, so its position is
+        # independent of the keyboard window. Not on GNOME, where the
+        # Onboard extension lets "onboard-*" windows take focus.
+        self._kwin_app_id = None
+        if WaylandUtils.is_wayland() and WaylandUtils.is_kde_plasma():
+            if WaylandUtils.install_kwin_rule(
+                    app_id=self.KWIN_APP_ID,
+                    rule_name=self.KWIN_APP_ID,
+                    description="Onboard floating icon"):
+                self._kwin_app_id = self.KWIN_APP_ID
 
         self.drawing_area = Gtk.DrawingArea()
         self.add(self.drawing_area)
@@ -220,7 +236,7 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
                     self.hide()
                     self.unrealize()
 
-                self.realize()
+                self._with_app_id(self.realize)
 
                 if visible:
                     self.show()
@@ -443,9 +459,25 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
         self._stop_dwelling()
         self._no_more_dwelling = False
 
-        Gtk.Window.show_all(self)
+        self._with_app_id(Gtk.Window.show_all, self)
         self.move_resize(*self.get_rect())  # sync with WindowRectTracker
         self._visible = True
+
+    def _with_app_id(self, func, *args):
+        """
+        Call func with the icon palette's own Wayland app_id in effect.
+        GTK takes the app_id from the GLib program name when it creates
+        the xdg_toplevel, so swap it only for the duration of the call.
+        """
+        saved_prgname = None
+        if self._kwin_app_id:
+            saved_prgname = GLib.get_prgname()
+            GLib.set_prgname(self._kwin_app_id)
+        try:
+            func(*args)
+        finally:
+            if saved_prgname is not None:
+                GLib.set_prgname(saved_prgname)
 
     def hide(self):
         """
