@@ -96,8 +96,7 @@ def install_kwin_rule(app_id="onboard",
                      description="Onboard on-screen keyboard"):
     """
     Idempotently install a KWin window rule that marks the Onboard window
-    as not-focus-stealing and always-on-top, and lets KWin remember its
-    position. Returns True on success.
+    as not-focus-stealing and always-on-top. Returns True on success.
 
     The rule is written to ``~/.config/kwinrulesrc`` (user scope, no sudo).
     KWin is asked to reload via D-Bus; if that fails the change still
@@ -145,7 +144,9 @@ def install_kwin_rule(app_id="onboard",
     for opt in list(parser.options(rule_name)):
         if opt.endswith("[$d]"):
             parser.remove_option(rule_name, opt)
-    for legacy in ("title", "titlematch"):
+    # KWin's "remember position" never reaches disk; the position is
+    # handled by the script from load_kwin_position_script() instead.
+    for legacy in ("title", "titlematch", "position", "positionrule"):
         parser.remove_option(rule_name, legacy)
 
     # KWin's rule format stores the Wayland app_id under the historical
@@ -173,10 +174,6 @@ def install_kwin_rule(app_id="onboard",
         "skiptaskbarrule": "2",
         "skippager": "true",
         "skippagerrule": "2",
-        # 'positionrule=4' = "remember": Wayland clients can't know or set
-        # their global position, so let KWin store it. KWin writes the
-        # value to 'position', which we deliberately leave untouched.
-        "positionrule": "4",
     }
     for k, v in values.items():
         parser.set(rule_name, k, v)
@@ -193,8 +190,8 @@ def install_kwin_rule(app_id="onboard",
     # what's already on disk -- avoids touching mtime (sync churn) and saves
     # a needless KWin reconfigure round-trip on every Onboard start.
     buf = io.StringIO()
-    # KWin writes 'key=value'; match it so its own saves (e.g. the
-    # remembered position) don't make the file look changed.
+    # KWin writes 'key=value'; match it so its own saves don't make
+    # the file look changed.
     parser.write(buf, space_around_delimiters=False)
     new_text = buf.getvalue()
 
@@ -237,6 +234,128 @@ def install_kwin_rule(app_id="onboard",
                  "(app_id=%s, acceptfocus=false, above=true)",
                  rule_name, cfg_file, app_id)
     return True
+
+
+_KWIN_POSITION_SCRIPT_NAME = "onboard-window-position"
+
+# Reports the frame position of Onboard's windows (by app_id) after each
+# interactive move/resize via D-Bus and moves them back there whenever
+# they are mapped again (startup, unhide). 0, 0 means "unknown": that's
+# what Onboard stored on Wayland before it could learn its position.
+_KWIN_POSITION_SCRIPT = """
+const positions = %(positions)s;
+
+function isOnScreen(p) {
+    return workspace.screens.some(function (s) {
+        const g = s.geometry;
+        return p.x >= g.x && p.y >= g.y &&
+               p.x < g.x + g.width && p.y < g.y + g.height;
+    });
+}
+
+function report(w, appId) {
+    const g = w.frameGeometry;
+    const pos = {x: Math.round(g.x), y: Math.round(g.y)};
+    positions[appId] = pos;
+    callDBus(%(service)s, %(path)s, %(iface)s, %(method)s,
+             appId, pos.x, pos.y);
+}
+
+function track(w) {
+    const appId = w.resourceClass;
+    if (!positions.hasOwnProperty(appId) || !w.normalWindow)
+        return;
+    const pos = positions[appId];
+    if ((pos.x != 0 || pos.y != 0) && isOnScreen(pos)) {
+        const g = w.frameGeometry;
+        w.frameGeometry = {x: pos.x, y: pos.y,
+                           width: g.width, height: g.height};
+    }
+    w.interactiveMoveResizeFinished.connect(function () {
+        report(w, appId);
+    });
+}
+
+workspace.windowList().forEach(track);
+workspace.windowAdded.connect(track);
+"""
+
+
+def _call_kwin_scripting(bus, path, iface, method, params=None,
+                         reply_type=None):
+    return bus.call_sync("org.kde.KWin", path, iface, method, params,
+                         reply_type, Gio.DBusCallFlags.NONE, 2000, None)
+
+
+def load_kwin_position_script(positions, service, path, iface, method):
+    """
+    KDE Wayland: load a KWin script that keeps track of window positions,
+    which Wayland clients can neither see nor set. KWin's own "remember
+    position" rule doesn't survive a re-login.
+
+    <positions> maps app_ids to the last known (x, y). The script calls
+    <method>(app_id, x, y) on <service> with the new frame position after
+    each move and restores the last position when a window is mapped.
+    Returns True on success.
+    """
+    import json
+
+    script = _KWIN_POSITION_SCRIPT % {
+        "positions": json.dumps({app_id: {"x": int(x), "y": int(y)}
+                                 for app_id, (x, y) in positions.items()}),
+        "service": json.dumps(service), "path": json.dumps(path),
+        "iface": json.dumps(iface), "method": json.dumps(method)}
+
+    runtime_dir = GLib.get_user_runtime_dir()
+    filename = os.path.join(runtime_dir, _KWIN_POSITION_SCRIPT_NAME + ".js")
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(script)
+    except OSError as e:
+        _logger.warning("Could not write %s: %s", filename, e)
+        return False
+
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+        # A previous Onboard instance may have left its script loaded.
+        _call_kwin_scripting(bus, "/Scripting", "org.kde.kwin.Scripting",
+                             "unloadScript",
+                             GLib.Variant("(s)",
+                                          (_KWIN_POSITION_SCRIPT_NAME,)))
+
+        result = _call_kwin_scripting(bus, "/Scripting",
+                                      "org.kde.kwin.Scripting",
+                                      "loadScript",
+                                      GLib.Variant("(ss)", (
+                                          filename,
+                                          _KWIN_POSITION_SCRIPT_NAME)),
+                                      GLib.VariantType("(i)"))
+        script_id = result.unpack()[0]
+        if script_id < 0:
+            _logger.warning("KWin refused to load %s", filename)
+            return False
+
+        _call_kwin_scripting(bus, "/Scripting/Script{}".format(script_id),
+                             "org.kde.kwin.Script", "run")
+    except GLib.Error as e:
+        _logger.warning("Could not load KWin position script: %s", e)
+        return False
+
+    _logger.info("KWin position script loaded, positions %s", positions)
+    return True
+
+
+def unload_kwin_position_script():
+    """ Unload the script loaded by load_kwin_position_script(). """
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        _call_kwin_scripting(bus, "/Scripting", "org.kde.kwin.Scripting",
+                             "unloadScript",
+                             GLib.Variant("(s)",
+                                          (_KWIN_POSITION_SCRIPT_NAME,)))
+    except GLib.Error as e:
+        _logger.debug("Could not unload KWin position script: %s", e)
 
 
 def _get_layer_shell():

@@ -194,6 +194,7 @@ class OnboardGtk(object):
         self._window = None
         self.status_icon = None
         self.service_keyboard = None
+        self._kwin_position_script = False
         self._reload_layout_timer = Timer()
         self._layout_watcher = None    # KDE Wayland layout-change D-Bus subscription
 
@@ -291,6 +292,24 @@ class OnboardGtk(object):
         if not config.xid_mode and \
            has_dbus:
             self.service_keyboard = ServiceOnboardKeyboard(self)
+
+        # KDE Wayland: KWin reports and restores the window positions,
+        # Onboard can't see or set them itself.
+        if self.service_keyboard and \
+           self._window.uses_kwin_rule():
+            rect = self._window.home_rect
+            positions = {"onboard": (rect.x, rect.y)}
+            icp = self._window.icp
+            if icp and icp.get_kwin_app_id():
+                positions[icp.get_kwin_app_id()] = icp.get_saved_position()
+
+            self._kwin_position_script = \
+                WaylandUtils.load_kwin_position_script(
+                    positions,
+                    ServiceOnboardKeyboard.NAME,
+                    ServiceOnboardKeyboard.PATH,
+                    ServiceOnboardKeyboard.IFACE_KWIN,
+                    "WindowMoved")
 
         # show/hide the window
         self.keyboard_widget.set_startup_visibility()
@@ -847,6 +866,10 @@ class OnboardGtk(object):
             self._layout_watcher.stop()
             self._layout_watcher = None
 
+        if self._kwin_position_script:
+            WaylandUtils.unload_kwin_position_script()
+            self._kwin_position_script = False
+
         # Make an effort to disconnect all handlers.
         # Used to be used for safe restarting.
         for instance, handler_id in self._connections:
@@ -928,6 +951,7 @@ if has_dbus:
         NAME = "org.onboard.Onboard"
         PATH = "/org/onboard/Onboard/Keyboard"
         IFACE = "org.onboard.Onboard.Keyboard"
+        IFACE_KWIN = "org.onboard.Onboard.KWin"  # private
 
         LOCK_REASON = "D-Bus"
 
@@ -947,6 +971,21 @@ if has_dbus:
         @dbus.service.method(dbus_interface=IFACE)
         def ToggleVisible(self):  # noqa: flake8
             self._keyboard.request_visibility_toggle()
+
+        # private method, called by the KWin script from
+        # WaylandUtils.load_kwin_position_script(). No in_signature,
+        # KWin may send the numbers as int or double.
+        @dbus.service.method(dbus_interface=IFACE_KWIN)
+        def WindowMoved(self, app_id, x, y):  # noqa: flake8
+            window = self._keyboard_widget.get_kbd_window()
+            if not window:
+                return
+            if app_id != "onboard":
+                window = window.icp
+                if not window or window.get_kwin_app_id() != app_id:
+                    return
+            window.on_compositor_position_changed(int(round(x)),
+                                                  int(round(y)))
 
         # private method, for unit-testing only
         if config.is_running_from_source:

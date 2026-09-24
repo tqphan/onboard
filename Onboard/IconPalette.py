@@ -76,6 +76,7 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
         self._visible = False
         self._force_to_top = False
         self._last_pos = None
+        self._compositor_position = None  # KDE Wayland, reported by KWin
 
         self._dwell_progress = DwellProgress()
         self._dwell_begin_timer = None
@@ -192,6 +193,45 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
     def _on_configure_event(self, widget, event):
         self.update_window_rect()
 
+        # KDE Wayland: KWin resizes the window and the button release that
+        # would end the drag never arrives. Save any new size here.
+        if self._kwin_app_id and self._visible:
+            orientation = self.get_screen_orientation()
+            saved_rect = self.read_window_rect(orientation)
+            if self.get_rect().get_size() != saved_rect.get_size():
+                self.start_save_position_timer()
+
+    def get_kwin_app_id(self):
+        """ Wayland app_id of the KWin rule, None if not on KDE Wayland """
+        return self._kwin_app_id
+
+    def get_saved_position(self):
+        """ Position from gsettings """
+        rect = self.read_window_rect(self.get_screen_orientation())
+        return rect.x, rect.y
+
+    def on_compositor_position_changed(self, x, y):
+        """
+        KDE Wayland: KWin reports the frame position after the user
+        moved or resized the window.
+        """
+        self._compositor_position = (x, y)
+        self.start_save_position_timer()
+
+    def on_save_window_rect(self, rect):
+        """
+        KDE Wayland: GTK only ever reports (0, 0), keep the position
+        reported by KWin, or the saved one.
+        Overload for WindowRectPersist.
+        """
+        if self._kwin_app_id:
+            rect = rect.copy()
+            if self._compositor_position is None:
+                rect.x, rect.y = self.get_saved_position()
+            else:
+                rect.x, rect.y = self._compositor_position
+        return rect
+
     def on_drag_initiated(self):
         self.stop_save_position_timer()
         self._stop_dwelling()
@@ -277,7 +317,15 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
         """
         sequence = InputSequence()
         sequence.init_from_motion_event(event)
-        self.handle_motion(sequence, fallback=True)
+
+        # Wayland ignores client side window moves, let the compositor
+        # move/resize. It swallows the button release, so end the drag
+        # right away.
+        wayland = WaylandUtils.is_wayland()
+        self.handle_motion(sequence, fallback=not wayland)
+        if wayland and self.is_drag_active():
+            self.stop_drag()
+
         self.set_drag_cursor_at((event.x, event.y))
 
         # start dwelling if nothing else is going on

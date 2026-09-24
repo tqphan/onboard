@@ -925,6 +925,24 @@ class KbdWindow(KbdWindowBase, WindowRectPersist, Gtk.Window):
         if self._window_rect.get_size() != self.home_rect.get_size():
             self.update_home_rect(update_home_position=False)
 
+    def uses_kwin_rule(self):
+        """ Is the window position managed by KWin (KDE Wayland)? """
+        return self._uses_kwin_rule
+
+    def on_compositor_position_changed(self, x, y):
+        """
+        KDE Wayland: KWin reports the frame position after the user
+        moved or resized the window. Save it as the home position.
+        """
+        if self.home_rect is None or \
+           config.is_docking_enabled():
+            return
+
+        _logger.debug("on_compositor_position_changed: {}, {}".format(x, y))
+        self.home_rect.x = x
+        self.home_rect.y = y
+        self.start_save_position_timer()
+
     def _filter_configure_event(self, rect):
         """
         Returns 0 for detected user positioning/sizing.
@@ -1062,14 +1080,16 @@ class KbdWindow(KbdWindowBase, WindowRectPersist, Gtk.Window):
             return
 
         # update home rect
+        # KDE Wayland: we only ever see (0, 0), the real position comes
+        # from KWin, see on_compositor_position_changed().
         rect = self._window_rect.copy()
-        if not update_home_position:
+        if not update_home_position or self._uses_kwin_rule:
             rh = self.home_rect
             rect.x = rh.x
             rect.y = rh.y
 
         # Make sure the move button stays visible
-        if self.can_move_into_view():
+        if self.can_move_into_view() and not self._uses_kwin_rule:
             rect.x, rect.y = self.keyboard_widget.limit_position(rect.x, rect.y)
 
         self.home_rect = rect.copy()
