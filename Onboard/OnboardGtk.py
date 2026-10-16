@@ -297,8 +297,13 @@ class OnboardGtk(object):
         # Onboard can't see or set them itself.
         if self.service_keyboard and \
            self._window.uses_kwin_rule():
+            # No home rect while docked; (0, 0) keeps the script from
+            # moving the window, but it still reports positions.
             rect = self._window.home_rect
-            positions = {"onboard": (rect.x, rect.y)}
+            if rect is None:
+                positions = {"onboard": (0, 0)}
+            else:
+                positions = {"onboard": (rect.x, rect.y)}
             icp = self._window.icp
             if icp and icp.get_kwin_app_id():
                 positions[icp.get_kwin_app_id()] = icp.get_saved_position()
