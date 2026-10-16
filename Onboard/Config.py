@@ -1633,6 +1633,7 @@ class ConfigKeyboard(ConfigObject):
         self.add_key("audio-feedback-enabled", False)
         self.add_key("audio-feedback-place-in-space", False)
         self.add_key("show-secondary-labels", False)
+        self.add_key("low-quality-rendering", False)
 
         self.add_key("inter-key-stroke-delay", 0.0)
         self.add_key("modifier-update-delay", 1.0)

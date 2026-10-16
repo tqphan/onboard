@@ -157,12 +157,12 @@ class RectKey(Key, RectKeyCommon, DwellProgress):
             super(RectKey, self).set_border_rect(rect)
             self.invalidate_caches()
 
-    def draw_cached(self, cr):
+    def draw_cached(self, cr, lod=LOD.FULL):
         key = (self.label, self.font_size >> 8)
         entry = self._key_surfaces.get(key)
         if entry is None:
             if self.font_size:
-                entry = self._create_key_surface(cr)
+                entry = self._create_key_surface(cr, lod)
                 self._key_surfaces[key] = entry
 
         if entry:
@@ -170,7 +170,7 @@ class RectKey(Key, RectKeyCommon, DwellProgress):
             cr.set_source_surface(surface, rect.x, rect.y)
             cr.paint()
 
-    def _create_key_surface(self, base_context):
+    def _create_key_surface(self, base_context, lod):
         rect = self.get_canvas_rect()
         clip_rect = rect.inflate(*self.get_extra_render_size()).int()
 
@@ -182,7 +182,7 @@ class RectKey(Key, RectKeyCommon, DwellProgress):
 
         cr.save()
         cr.translate(-clip_rect.x, -clip_rect.y)
-        self.draw(cr)
+        self.draw(cr, lod)
         cr.restore()
 
         Gdk.flush()  # else artefacts in labels and images on Nexus 7, Raring
@@ -191,7 +191,7 @@ class RectKey(Key, RectKeyCommon, DwellProgress):
 
     def draw_item(self, context):
         if context.draw_cached and self.can_draw_cached:
-            self.draw_cached(context.cr)
+            self.draw_cached(context.cr, context.lod)
         else:
             self.draw(context.cr, context.lod)
 

@@ -449,6 +449,8 @@ class Settings(DialogBuilder):
                         config.keyboard, "audio_feedback_place_in_space")
         self.bind_check("show_secondary_labels_toggle",
                         config.keyboard, "show_secondary_labels")
+        self.bind_check("low_quality_rendering_toggle",
+                        config.keyboard, "low_quality_rendering")
         self.bind_check("upper_case_on_right_click_toggle",
                         config.keyboard, "key_press_modifiers",
                         config_get_callback=lambda co, key:

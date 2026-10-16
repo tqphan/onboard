@@ -310,6 +310,11 @@ delayed-stroke: generate key-press and key-release on button-release, there is n
             <summary>Show secondary labels</summary>
             <description>Show additional key labels of different modifier levels.</description>
         </key>
+        <key name="low-quality-rendering" type="b">
+            <default>false</default>
+            <summary>Low quality rendering</summary>
+            <description>Draw keys without borders, gradients and shadows for faster rendering on slow systems.</description>
+        </key>
         <key name="inter-key-stroke-delay" type="d">
             <default>0.0</default>
             <summary>Delay between key-strokes</summary>

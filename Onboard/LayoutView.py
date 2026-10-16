@@ -140,6 +140,15 @@ class LayoutView:
             for item in layout.iter_keys():
                 item.invalidate_label_extents()
 
+    def get_base_lod(self):
+        """
+        Highest level of detail to draw keys with, lowered by the
+        low quality rendering option.
+        """
+        if config.keyboard.low_quality_rendering:
+            return LOD.MINIMAL
+        return LOD.FULL
+
     def reset_lod(self):
         """ Reset to full level of detail """
         if self._lod != LOD.FULL:
@@ -242,13 +251,16 @@ class LayoutView:
         if not layout.get_font_sizes_valid():
             self.update_labels()
 
-        self._auto_select_shadow_quality(context)
+        lod = self.get_base_lod()
+        if lod == LOD.FULL:
+            self._auto_select_shadow_quality(context)
 
         # run through all visible layout items
         for item in layout.iter_visible_items():
             if item.is_key():
-                item.draw_shadow_cached(context)
-                item.draw_cached(context)
+                if lod == LOD.FULL:
+                    item.draw_shadow_cached(context)
+                item.draw_cached(context, lod)
 
         self._keys_pre_rendered = True
 
@@ -273,12 +285,13 @@ class LayoutView:
         if not layout:
             return
 
-        lod = self._lod
-        draw_cached = self._can_draw_cached(lod)
+        draw_cached = self._can_draw_cached(self._lod)
 
         # lazily update font sizes and labels
         if not layout.get_font_sizes_valid():
-            self.update_labels(lod)
+            self.update_labels(self._lod)
+
+        lod = min(self._lod, self.get_base_lod())
 
         # draw background
         decorated = self._draw_background(cr, lod)
