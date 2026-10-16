@@ -93,10 +93,12 @@ def is_kde_plasma():
 
 def install_kwin_rule(app_id="onboard",
                      rule_name="onboard",
-                     description="Onboard on-screen keyboard"):
+                     description="Onboard on-screen keyboard",
+                     no_border=False):
     """
     Idempotently install a KWin window rule that marks the Onboard window
-    as not-focus-stealing and always-on-top. Returns True on success.
+    as not-focus-stealing and always-on-top. With no_border, KWin also
+    drops its title bar and frame. Returns True on success.
 
     The rule is written to ``~/.config/kwinrulesrc`` (user scope, no sudo).
     KWin is asked to reload via D-Bus; if that fails the change still
@@ -175,6 +177,16 @@ def install_kwin_rule(app_id="onboard",
         "skippager": "true",
         "skippagerrule": "2",
     }
+    if no_border:
+        values["noborder"] = "true"
+        values["noborderrule"] = "2"
+        # A forced server-side decoration policy would bring the
+        # title bar back.
+        for opt in ("decorationpolicy", "decorationpolicyrule"):
+            parser.remove_option(rule_name, opt)
+    else:
+        for opt in ("noborder", "noborderrule"):
+            parser.remove_option(rule_name, opt)
     for k, v in values.items():
         parser.set(rule_name, k, v)
 

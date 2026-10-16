@@ -124,7 +124,8 @@ class IconPalette(WindowRectPersist, WindowManipulator, Gtk.Window):
             if WaylandUtils.install_kwin_rule(
                     app_id=self.KWIN_APP_ID,
                     rule_name=self.KWIN_APP_ID,
-                    description="Onboard floating icon"):
+                    description="Onboard floating icon",
+                    no_border=True):
                 self._kwin_app_id = self.KWIN_APP_ID
 
         self.drawing_area = Gtk.DrawingArea()
