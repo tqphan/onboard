@@ -13,6 +13,7 @@ python3 setup.py clean
 python3 setup.py build          # compiles Onboard.osk (C) and Onboard.pypredict.lm (C++)
 ./onboard                       # run keyboard from the source tree
 ./onboard-settings              # run preferences dialog from the source tree
+./onboard-layout-editor         # graphical layout editor (Onboard/LayoutEditor*.py)
 ```
 
 - `setup.py build` symlinks the built `osk*.so` into `Onboard/` and `lm*.so` into `Onboard/pypredict/`, so the source tree runs without `--inplace`. `clean` removes those symlinks and all `__pycache__` dirs. Rebuild after any change under `Onboard/osk/` or `Onboard/pypredict/lm/`.

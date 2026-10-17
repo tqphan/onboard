@@ -659,7 +659,7 @@ DistUtilsExtra.auto.setup(
                       glob.glob('data/gnome-extension/onboard@onboard.local/*')),
                  ],
 
-    scripts = ['onboard', 'onboard-settings'],
+    scripts = ['onboard', 'onboard-settings', 'onboard-layout-editor'],
 
     options={
         'build_scripts': {
