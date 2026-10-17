@@ -75,6 +75,7 @@ class WordSuggestions:
         self.word_infos = []
 
         self._separator_before_key_press = None
+        self._typed_key_press_time = 0
 
         self._hide_input_line = False
         self._word_list_bars = []
@@ -270,12 +271,23 @@ class WordSuggestions:
         if not key.is_modifier() and not key.is_button():
             self._punctuator.on_before_press(key)
         self.text_context.on_onboard_typing(key, self.get_mod_mask())
+        self._track_typed_key(key)
 
     def on_before_key_release(self, key):
         self._punctuator.on_before_release(key)
 
     def on_after_key_release(self, key):
         self._punctuator.on_after_release(key)
+
+        # Auto-repeat of a held key isn't tracked, start over.
+        if self.text_context.is_typed_context_only() and \
+           key.is_text_changing() and \
+           key.type not in (KeyCommon.WORD_TYPE,
+                            KeyCommon.CORRECTION_TYPE,
+                            KeyCommon.MACRO_TYPE) and \
+           time.time() - self._typed_key_press_time > 0.4:
+            self.input_line.reset()
+            self.text_context.update_typed_context()
 
         # DEL and BKSP don't always change text and generate
         # AT-SPI events. Be sure to update the separator popup here.
@@ -507,6 +519,7 @@ class WordSuggestions:
                               insertion)
         if auto_separator:
             self.get_text_changer().insert_string_at_caret(auto_separator)
+            self.track_typed_text(auto_separator)
             if delete_existing_separator:
                 pos = selection_span.begin() - len(deletion) + \
                     len(insertion) + len(auto_separator)
@@ -934,7 +947,7 @@ class WordSuggestions:
         """
         Delete the current selection.
         """
-        if self.text_context.can_insert_text():
+        if self.text_context.can_edit_at_offset():
             # delete any selected text first
             selection_span = self.text_context.get_selection_span()
             if not selection_span.is_empty():
@@ -948,10 +961,14 @@ class WordSuggestions:
         """
         Replace text from <begin> to <end> with <new_text>,
         """
-        if self.text_context.can_insert_text():
+        if self.text_context.can_edit_at_offset():
             self._replace_text_direct(begin, end, caret, new_text)
         else:
             self._replace_text_key_strokes(begin, end, caret, new_text)
+
+        if self.text_context.is_typed_context_only():
+            self.input_line.replace(begin, end, new_text)
+            self.text_context.update_typed_context()
 
     def _replace_text_direct(self, begin, end, caret, new_text):
         """
@@ -1043,8 +1060,44 @@ class WordSuggestions:
 
         if has_changes:
             self._learn_strategy.commit_changes()
+        self._learn_input_line()
 
         self._clear_changes()  # clear input line too
+
+    def _track_typed_key(self, key):
+        """ Follow key presses in the input line for typed context only """
+        if self.text_context.is_typed_context_only():
+            self._typed_key_press_time = time.time()
+            if self.input_line.track_key(key, self.get_mod_mask()):
+                self.commit_changes()  # editing ended, learn the line
+            self.text_context.update_typed_context()
+
+    def track_typed_text(self, text="", delete_left=0):
+        """
+        Follow text Onboard inserted or deleted at the caret without
+        a key press, for typed context only.
+        """
+        if self.text_context.is_typed_context_only():
+            if delete_left:
+                self.input_line.delete_left(delete_left)
+            if text:
+                self.input_line.insert(text)
+            self.text_context.update_typed_context()
+
+    def _learn_input_line(self):
+        """ Learn the text typed with Onboard for typed context only """
+        if self._wpengine and \
+           self.text_context.is_typed_context_only() and \
+           config.wp.can_auto_learn():
+            text = self.input_line.get_line()
+            if text.strip():
+                self._wpengine.learn_text(
+                    text, config.word_suggestions.can_learn_new_words())
+
+    def on_typed_context_only_changed(self):
+        """ Switched between typed and application context """
+        self.commit_changes()
+        self.text_context.on_text_context_changed()
 
     def discard_changes(self):
         """
@@ -1845,6 +1898,7 @@ class Punctuator:
             # always generate key-strokes and are likely to arrive
             # after the separator.
             self._wp.get_text_changer().insert_string_at_caret(string)
+            self._wp.track_typed_text(string)
             self.set_last_typed_was_separator(True)
 
     def insert_separator_at_distance(self, separator_span):
@@ -1871,6 +1925,7 @@ class Punctuator:
 
     def _delete_at_caret(self):
         self._wp.get_text_changer().delete_at_caret()
+        self._wp.track_typed_text(delete_left=1)
 
     def _get_span_at_caret(self):
         text_context = self._wp.text_context
@@ -1944,6 +1999,7 @@ class PunctuatorImmediateSeparators(Punctuator):
             # No direct insertion here. Space must always arrive
             # last, i.e. after the released key was generated.
             self._wp.text_changer_key_stroke.press_keysyms("space")
+            self._wp.track_typed_text(" ")
 
 
 class PunctuatorDelayedSeparators(Punctuator):

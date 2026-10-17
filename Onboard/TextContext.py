@@ -35,7 +35,7 @@ except ImportError as e:
 from Onboard.AtspiStateTracker import AtspiStateTracker, AtspiStateType
 from Onboard.TextDomain        import TextDomains
 from Onboard.TextChanges       import TextChanges, TextSpan
-from Onboard.utils             import KeyCode, unicode_str
+from Onboard.utils             import KeyCode, Modifiers, unicode_str
 from Onboard.Timer             import Timer
 from Onboard                   import KeyCommon
 
@@ -133,6 +133,24 @@ class AtspiTextContext(TextContext):
     def get_text_domain(self):
         return self._text_domain
 
+    @staticmethod
+    def is_typed_context_only():
+        """
+        Predict from the text typed with Onboard instead of reading
+        it from the accessible?
+        """
+        wp = getattr(config, "wp", None)  # not initialized in doctests
+        return bool(wp and wp.typed_context_only)
+
+    def _has_context(self):
+        return self._accessible is not None or \
+               self.is_typed_context_only()
+
+    def update_typed_context(self):
+        """ The input line changed, update the context from it. """
+        if self.is_typed_context_only():
+            self._update_context()
+
     def set_pending_separator(self, separator_span=None):
         """ Remember this separator span for later insertion. """
         if self._pending_separator_span is not separator_span:
@@ -147,6 +165,9 @@ class AtspiTextContext(TextContext):
         Returns the predictions context, i.e. some range of
         text before the caret position.
         """
+        if self.is_typed_context_only():
+            return self._context
+
         if self._accessible is None:
             return ""
 
@@ -163,6 +184,9 @@ class AtspiTextContext(TextContext):
         Returns the predictions context with
         begin of text marker (at text begin).
         """
+        if self.is_typed_context_only():
+            return self.get_context()
+
         context = ""
         if self._accessible:
             context = self.get_context()
@@ -194,14 +218,14 @@ class AtspiTextContext(TextContext):
 
     def get_line_past_caret(self):
         return self._line[self._line_caret:] \
-               if self._accessible else ""
+               if self._has_context() else ""
 
     def get_selection_span(self):
         return self._selection_span \
-               if self._accessible else None
+               if self._has_context() else None
 
     def get_span_at_caret(self):
-        if not self._accessible:
+        if not self._has_context():
             return None
 
         span = self._selection_span.copy()
@@ -210,11 +234,11 @@ class AtspiTextContext(TextContext):
 
     def get_caret(self):
         return self._selection_span.begin() \
-            if self._accessible else 0
+            if self._has_context() else 0
 
     def get_character_extents(self, offset):
         accessible = self._accessible
-        if accessible:
+        if accessible and not self.is_typed_context_only():
             return accessible.get_character_extents(offset)
         else:
             return None
@@ -245,7 +269,7 @@ class AtspiTextContext(TextContext):
 
     def get_begin_of_text_offset(self):
         return self._begin_of_text_offset \
-               if self._accessible else None
+               if self._has_context() else None
 
     def get_changes(self):
         return self._changes
@@ -263,6 +287,15 @@ class AtspiTextContext(TextContext):
         """
         # support for inserting is spotty: not in firefox, terminal
         return bool(self._accessible) and self._can_insert_text
+
+    def can_edit_at_offset(self):
+        """
+        Can delete or insert text at offsets of the context?
+        Not with typed context only, offsets are relative to the
+        input line there.
+        """
+        return self.can_insert_text() and \
+               not self.is_typed_context_only()
 
     def delete_text(self, offset, length=1):
         """ Delete directly, without going through faking key presses. """
@@ -421,6 +454,15 @@ class AtspiTextContext(TextContext):
         _logger.atspi("_on_text_changed: pos={}, length={}, insert={}"
                       .format(event.pos, event.length, event.insert))
 
+        if self.is_typed_context_only():
+            # Changes not made by Onboard invalidate the input line.
+            if not self._wp.is_typing():
+                self._wp.input_line.reset()
+            self._text_changed = True
+            self._last_text_change_time = time.time()
+            self._update_context()
+            return
+
         insertion_span = self._record_text_change(event.pos,
                                                   event.length,
                                                   event.insert)
@@ -438,6 +480,10 @@ class AtspiTextContext(TextContext):
         self._update_context()
 
     def _on_text_caret_moved(self, event):
+        if self.is_typed_context_only() and \
+           not self._wp.is_typing():
+            self._wp.input_line.reset()
+
         self._last_caret_move_time = time.time()
         self._last_caret_move_position = event.caret
         self._update_context()
@@ -565,6 +611,14 @@ class AtspiTextContext(TextContext):
 
         return insertion_span
 
+    def _read_typed_context(self):
+        """ Context from the text typed with Onboard """
+        input_line = self._wp.input_line
+        line = input_line.get_line()
+        caret = input_line.get_line_caret_pos()
+        return (input_line.get_context(), line, caret,
+                TextSpan(caret, 0, line, 0), False, None)
+
     def set_update_context_delay(self, delay):
         self._update_context_delay = delay
 
@@ -586,7 +640,11 @@ class AtspiTextContext(TextContext):
                    self._pending_separator_span.begin():
                     self.set_pending_separator(None)
 
-        result = self._text_domain.read_context(self._wp, self._accessible)
+        if self.is_typed_context_only():
+            result = self._read_typed_context()
+        else:
+            result = self._text_domain.read_context(self._wp,
+                                                    self._accessible)
         if result is not None:
             (self._context,
              self._line,
@@ -639,6 +697,9 @@ class InputLine(TextContext):
         self.move_caret(len(s))
 
     def delete_left(self, n=1):     # backspace
+        if n > self.caret:          # deleting unknown text
+            self.valid = False
+            n = self.caret
         self.line = self.line[:self.caret - n] + self.line[self.caret:]
         self.move_caret(-n)
 
@@ -675,68 +736,58 @@ class InputLine(TextContext):
         return not unicodedata.category(char) in ('Cc', 'Cf', 'Cs', 'Co',
                                                   'Cn', 'Zl', 'Zp')
 
-    def track_sent_key(self, key, mods):
+    def replace(self, begin, end, text):
         """
-        Sync input_line with single key presses.
-        WORD_ACTION and MACRO_ACTION do this in press_key_string.
+        Replace the text from <begin> to <end>. The caret keeps its
+        distance to the end of the line.
         """
-        end_editing = False
+        if not 0 <= begin <= end <= len(self.line):
+            self.valid = False
+            return
+        caret = self.caret
+        self.line = self.line[:begin] + text + self.line[end:]
+        if caret >= end:
+            self.caret = caret + len(text) - (end - begin)
+        elif caret > begin:
+            self.caret = begin + len(text)
 
-        if config.wp.stealth_mode:
+    def track_key(self, key, mod_mask):
+        """
+        Follow a key press of Onboard. Returns True if the key ended
+        editing the line, e.g. Return or a cursor key we can't follow.
+        Words, corrections and snippets are tracked where they are
+        inserted.
+        """
+        if key.is_modifier() or \
+           key.type in (KeyCommon.BUTTON_TYPE,
+                        KeyCommon.WORD_TYPE,
+                        KeyCommon.CORRECTION_TYPE,
+                        KeyCommon.MACRO_TYPE):
+            return False
+
+        if mod_mask & (Modifiers.CTRL | Modifiers.ALT | Modifiers.SUPER):
             return True
 
         id = key.id.upper()
-        char = key.get_label()
-        if char is None or len(char) > 1:
-            char = ""
-
-        if key.action_type == KeyCommon.WORD_ACTION:
-            pass  # don't reset input on word insertion
-
-        elif key.action_type == KeyCommon.MODIFIER_ACTION:
-            pass  # simply pressing a modifier shouldn't stop the word
-
-        elif key.action_type == KeyCommon.BUTTON_ACTION:
-            pass
-
-        elif key.action_type == KeyCommon.KEYSYM_ACTION:
-            if id == 'ESC':
-                self.reset()
-            end_editing = True
-
-        elif key.action_type == KeyCommon.KEYPRESS_NAME_ACTION:
-            if id == 'DELE':
-                self.delete_right()
-            elif id == 'LEFT':
-                self.move_caret(-1)
-            elif id == 'RGHT':
-                self.move_caret(1)
-            else:
-                end_editing = True
-
-        elif key.action_type == KeyCommon.KEYCODE_ACTION:
-            if id == 'RTRN':
-                char = "\n"
-            elif id == 'SPCE':
-                char = " "
-            elif id == 'TAB':
-                char = "\t"
-
-            if id == 'BKSP':
-                self.delete_left()
-            elif self.is_printable(char):
-                if mods[4]:  # ctrl+key press?
-                    end_editing = True
-                else:
-                    self.insert(char)
-            else:
-                end_editing = True
+        if id == "BKSP":
+            self.delete_left()
+        elif id == "DELE":
+            self.delete_right()
+        elif id == "LEFT":
+            self.move_caret(-1)
+        elif id == "RGHT":
+            self.move_caret(1)
+        elif id == "SPCE":
+            self.insert(" ")
+        elif id == "TAB":
+            self.insert("\t")
         else:
-            end_editing = True
+            char = key.code if key.type == KeyCommon.CHAR_TYPE \
+                   else key.get_label()
+            if char and len(char) == 1 and \
+               char != "\n" and self.is_printable(char):
+                self.insert(char)
+            else:
+                return True
 
-        if not self.is_valid():  # caret moved outside known range?
-            end_editing = True
-
-        # print end_editing,"'%s' " % self.line, self.caret
-        return end_editing
-
+        return not self.is_valid()

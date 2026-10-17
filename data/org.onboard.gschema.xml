@@ -877,6 +877,11 @@ With 'known-only', new words are rejected, but frequency and recency of already 
             <summary>Enable punctuation assistance</summary>
             <description>Add and remove spaces when inserting word suggestions followed by punctuation characters.</description>
         </key>
+        <key name="typed-context-only" type="b">
+            <default>false</default>
+            <summary>Predict from text typed with Onboard only</summary>
+            <description>Don't read text from applications. Word suggestions are based only on what was typed with Onboard since the last focus change, cursor movement or line break.</description>
+        </key>
         <key name="delayed-word-separators-enabled" type="b">
             <default>false</default>
             <summary>Insert word separators lazily</summary>

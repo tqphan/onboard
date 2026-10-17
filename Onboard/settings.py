@@ -1422,6 +1422,8 @@ class PageWordSuggestions(DialogBuilder):
 
         self.bind_check("punctuation_assistance_toggle",
                             config.wp, "punctuation_assistance")
+        self.bind_check("typed_context_only_toggle",
+                            config.wp, "typed_context_only")
         self.bind_check("auto_capitalization_toggle",
                             config.typing_assistance, "auto_capitalization")
         self.bind_check("auto_correction_toggle",

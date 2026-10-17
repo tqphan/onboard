@@ -3847,6 +3847,24 @@ Requires restart.</property>
                                             <property name="position">3</property>
                                           </packing>
                                         </child>
+                                        <child>
+                                          <object class="GtkCheckButton" id="typed_context_only_toggle">
+                                            <property name="label" translatable="yes">_Only use text typed with Onboard</property>
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">True</property>
+                                            <property name="receives_default">False</property>
+                                            <property name="has_tooltip">True</property>
+                                            <property name="tooltip_text" translatable="yes">Don't read text from applications. Suggestions are based only on what was typed with Onboard since the last focus change, cursor movement or line break.</property>
+                                            <property name="use_underline">True</property>
+                                            <property name="xalign">0</property>
+                                            <property name="draw_indicator">True</property>
+                                          </object>
+                                          <packing>
+                                            <property name="expand">False</property>
+                                            <property name="fill">True</property>
+                                            <property name="position">4</property>
+                                          </packing>
+                                        </child>
                                       </object>
                                     </child>
                                     <child type="label">

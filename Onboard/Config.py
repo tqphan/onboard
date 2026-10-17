@@ -2153,6 +2153,7 @@ class ConfigWordSuggestions(ConfigObject):
         self.add_key("enabled", False)
         self.add_key("auto-learn", True)
         self.add_key("punctuation-assistance", True)
+        self.add_key("typed-context-only", False)
         self.add_key("delayed-word-separators-enabled", False)
         self.add_key("accent-insensitive", True)
         self.add_key("max-word-choices", 5)

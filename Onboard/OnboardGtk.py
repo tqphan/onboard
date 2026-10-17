@@ -363,6 +363,8 @@ class OnboardGtk(object):
                                     self.keyboard.update_touch_input_mode())
         config.keyboard.show_secondary_labels_notify_add(update_ui)
         config.keyboard.low_quality_rendering_notify_add(update_ui)
+        config.wp.typed_context_only_notify_add(lambda x:
+                    self.keyboard.on_typed_context_only_changed())
 
         # window
         config.window.window_state_sticky_notify_add(

@@ -1777,6 +1777,7 @@ class Keyboard(WordSuggestions):
         mlabel, mString = config.snippets.get(snippet_id, (None, None))
         if mString:
             self.get_text_changer().insert_string_at_caret(mString)
+            self.track_typed_text(mString)
             return True
         return False
 
