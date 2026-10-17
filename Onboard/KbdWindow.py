@@ -133,7 +133,7 @@ class KbdWindowBase:
         if WaylandUtils.is_wayland():
             if WaylandUtils.is_kde_plasma():
                 # Best path for KDE: regular toplevel with KWin rule.
-                if WaylandUtils.install_kwin_rule(app_id="onboard"):
+                if self._install_kwin_rule():
                     self._uses_kwin_rule = True
                     _logger.info("Using KWin window rule for keyboard "
                                  "window (drag + resize stay available)")
@@ -361,6 +361,15 @@ class KbdWindowBase:
                 self.set_type_hint(type_hint)
                 self._type_hint = type_hint
 
+    def _install_kwin_rule(self):
+        """
+        KDE Wayland: KWin draws the title bar, so the window rule has
+        to follow the window decoration option.
+        """
+        return WaylandUtils.install_kwin_rule(
+            app_id="onboard",
+            no_border=not config.window.window_decoration)
+
     def update_window_options(self, startup = False):
         if not config.xid_mode:   # not when embedding
 
@@ -370,6 +379,8 @@ class KbdWindowBase:
             decorated = config.window.window_decoration
             if decorated != self.get_decorated():
                 recreate = True
+                if self._uses_kwin_rule:
+                    self._install_kwin_rule()
 
             # Override redirect toggled?
             ord = config.is_override_redirect()
